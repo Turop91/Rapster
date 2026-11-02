@@ -95,7 +95,7 @@ code{background:#0f0f15;padding:2px 6px;border-radius:6px;word-break:break-all}
       <label class="btn sec" style="margin:0;color:#fff;font-weight:700;font-size:16px;cursor:pointer">Sicherung laden<input type="file" id="importJson" accept=".json" hidden></label>
     </div>
     <div class="prog"><i id="progBar"></i></div>
-    <p class="mut" id="stats" style="margin:8px 0 0"></p>
+    <p class="mut" id="stats" style="margin:8px 0 0"></p><p class="warn" id="waitMsg" style="margin:6px 0 0"></p>
   </div>
   <div class="card" id="list"></div>
 </section>
@@ -161,7 +161,9 @@ async function token(){let t=LS.get("rp_tok",null);if(!t)throw new Error("Nicht 
 async function api(path,opt={},retry=true){
   const r = await fetch("https://api.spotify.com/v1"+path,{...opt,headers:{Authorization:"Bearer "+await token(),"Content-Type":"application/json",...(opt.headers||{})}});
   if(r.status===401&&retry){await refresh();return api(path,opt,false)}
-  if(r.status===429){const s=+(r.headers.get("Retry-After")||2);await new Promise(x=>setTimeout(x,(s+1)*1000));return api(path,opt,retry)}
+  if(r.status===429){const s=+(r.headers.get("Retry-After")||5);const until=Date.now()+(s+1)*1000;
+    while(Date.now()<until){const m=Math.ceil((until-Date.now())/60000);const el=document.getElementById("waitMsg");if(el)el.textContent="⏳ Spotify-Limit erreicht – App wartet automatisch noch ca. "+m+" Min. Tab offen lassen.";await new Promise(x=>setTimeout(x,5000))}
+    const el=document.getElementById("waitMsg");if(el)el.textContent="";return api(path,opt,retry)}
   if(r.status===204)return null;
   const txt = await r.text(); let j=null; try{j=txt?JSON.parse(txt):null}catch(e){}
   if(!r.ok){const e=new Error((j&&j.error&&(j.error.message||j.error.reason))||("HTTP "+r.status));e.status=r.status;e.reason=j&&j.error&&j.error.reason;throw e}
@@ -265,7 +267,7 @@ async function searchSong(song){
   for(const q of [`track:${title} artist:${prim}`, `${title} ${prim}`]){
     const j = await api("/search?"+new URLSearchParams({q,type:"track",limit:"10",market:"CH"}));
     (j.tracks.items||[]).forEach(t=>{if(!seen[t.id]){seen[t.id]=1;const c=candOf(t);c.s=score(t,song);res.push(c)}});
-    if(res.some(c=>c.s>=6)) break;
+    if(res.length) break;
   }
   res.sort((a,b)=>b.s-a.s || a.date.localeCompare(b.date));
   const st=S(song.nr); st.cands=res.slice(0,8); st.sel=res[0]?res[0].id:""; st.searched=true; save();
@@ -277,7 +279,7 @@ $("searchAll").onclick=async()=>{
   stop=false; const todo=SONGS.filter(s=>!S(s.nr).searched); let i=0;
   for(const s of todo){ if(stop)break;
     try{await searchSong(s)}catch(e){toast("Fehler bei #"+s.nr+": "+e.message); if(e.message==="Nicht angemeldet")break}
-    i++; $("progBar").style.width=(100*i/todo.length)+"%"; if(i%10===0)renderList(); await new Promise(r=>setTimeout(r,120));
+    i++; $("progBar").style.width=(100*i/todo.length)+"%"; if(i%10===0)renderList(); renderStats(); await new Promise(r=>setTimeout(r,2500));
   }
   renderList(); toast("Suche fertig");
 };
@@ -328,6 +330,7 @@ function renderList(){
   });
   $("stats").textContent=`${nS}/${SONGS.length} gesucht · ${nOk} bestätigt · ${nDiff} Jahr weicht ab · ${nNone} ohne Treffer`;
 }
+function renderStats(){let nS=0;SONGS.forEach(x=>{if(S(x.nr).searched)nS++});const t=$("stats").textContent;$("stats").textContent=t.replace(/^\d+\/\d+ gesucht/,nS+"/"+SONGS.length+" gesucht")}
 $("filter").onchange=renderList;
 function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 function download(name,data,type){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;a.click()}
